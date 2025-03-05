@@ -32,7 +32,7 @@ export const signup = async (req, res) => {
         }
 
         // Assign admin role if the email is admin@gmail.com
-        const role = email === "admin@gmail.com" ? "admin" : "customer";
+        // const role = email === "admin@gmail.com" ? "admin" : "customer";
 
         const user = await User.create({ name, email, password, role });
 
