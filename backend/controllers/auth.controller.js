@@ -1,7 +1,5 @@
-
-import User from "../models/user.model.js";
 import jwt from "jsonwebtoken";
-
+import User from "../models/user.model.js";
 
 const generateTokens = (userId) => {
 	const accessToken = jwt.sign({ userId }, process.env.ACCESS_TOKEN_SECRET, {
@@ -16,102 +14,62 @@ const generateTokens = (userId) => {
 };
 
 export const storeRefreshToken = async (userId, refreshToken) => {
-	const user = await User.findById(userId);
-	user.refreshToken = refreshToken; // Store refresh token in User model
-	await user.save();
+	const user = await User.findByPk(userId);
+	if (user) {
+		user.refreshToken = refreshToken;
+		await user.save();
+	}
 };
 
-//code for ADMIN PAGE (not working properly, main function w/o admin is commented)
 export const signup = async (req, res) => {
-    const { email, password, name } = req.body;
-    try {
-        const userExists = await User.findOne({ email });
+	const { email, password, name } = req.body;
+	try {
+		const userExists = await User.findOne({ where: { email } });
 
-        if (userExists) {
-            return res.status(400).json({ message: "User  already exists" });
-        }
+		if (userExists) {
+			return res.status(400).json({ message: "User already exists" });
+		}
 
-        // Assign admin role if the email is admin@gmail.com
-        // const role = email === "admin@gmail.com" ? "admin" : "customer";
+		const role = email === "admin@gmail.com" ? "admin" : "customer";
 
-        const user = await User.create({ name, email, password, role });
+		const user = await User.create({ name, email, password, role });
 
-        // authenticate
-        const { accessToken, refreshToken } = generateTokens(user._id);
-        await storeRefreshToken(user._id, refreshToken);
+		const { accessToken, refreshToken } = generateTokens(user.id);
+		await storeRefreshToken(user.id, refreshToken);
 
-        res.cookie("accessToken", accessToken, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
-            sameSite: "strict",
-            maxAge: 15 * 60 * 1000,
-        });
-        res.cookie("refreshToken", refreshToken, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
-            sameSite: "strict",
-            maxAge: 7 * 24 * 60 * 60 * 1000,
-        });
+		res.cookie("accessToken", accessToken, {
+			httpOnly: true,
+			secure: process.env.NODE_ENV === "production",
+			sameSite: "strict",
+			maxAge: 15 * 60 * 1000,
+		});
+		res.cookie("refreshToken", refreshToken, {
+			httpOnly: true,
+			secure: process.env.NODE_ENV === "production",
+			sameSite: "strict",
+			maxAge: 7 * 24 * 60 * 60 * 1000,
+		});
 
-        res.status(201).json({
-            _id: user._id,
-            name: user.name,
-            email: user.email,
-            role: user.role,
-        });
-    } catch (error) {
-        console.log("Error in signup controller", error.message);
-        res.status(500).json({ message: error.message });
-    }
+		res.status(201).json({
+			_id: user.id,
+			name: user.name,
+			email: user.email,
+			role: user.role,
+		});
+	} catch (error) {
+		console.log("Error in signup controller", error.message);
+		res.status(500).json({ message: error.message });
+	}
 };
-
-// export const signup = async (req, res) => {
-// 	const { email, password, name } = req.body;
-// 	try {
-// 		const userExists = await User.findOne({ email });
-
-// 		if (userExists) {
-// 			return res.status(400).json({ message: "User already exists" });
-// 		}
-// 		const user = await User.create({ name, email, password });
-
-// 		// authenticate
-// 		const { accessToken, refreshToken } = generateTokens(user._id);
-// 		await storeRefreshToken(user._id, refreshToken);
-
-// 		res.cookie("accessToken", accessToken, {
-// 			httpOnly: true, // prevent XSS attacks
-// 			secure: process.env.NODE_ENV === "production",
-// 			sameSite: "strict", // prevents CSRF attacks
-// 			maxAge: 15 * 60 * 1000, // 15 minutes
-// 		});
-// 		res.cookie("refreshToken", refreshToken, {
-// 			httpOnly: true, // prevent XSS attacks
-// 			secure: process.env.NODE_ENV === "production",
-// 			sameSite: "strict", // prevents CSRF attacks
-// 			maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-// 		});
-
-// 		res.status(201).json({
-// 			_id: user._id,
-// 			name: user.name,
-// 			email: user.email,
-// 			role: user.role,
-// 		});
-// 	} catch (error) {
-// 		console.log("Error in signup controller", error.message);
-// 		res.status(500).json({ message: error.message });
-// 	}
-// };
 
 export const login = async (req, res) => {
 	try {
 		const { email, password } = req.body;
-		const user = await User.findOne({ email });
+		const user = await User.findOne({ where: { email } });
 
 		if (user && (await user.comparePassword(password))) {
-			const { accessToken, refreshToken } = generateTokens(user._id);
-			await storeRefreshToken(user._id, refreshToken);
+			const { accessToken, refreshToken } = generateTokens(user.id);
+			await storeRefreshToken(user.id, refreshToken);
 
 			res.cookie("accessToken", accessToken, {
 				httpOnly: true,
@@ -127,7 +85,7 @@ export const login = async (req, res) => {
 			});
 
 			res.json({
-				_id: user._id,
+				_id: user.id,
 				name: user.name,
 				email: user.email,
 				role: user.role,
@@ -147,9 +105,9 @@ export const logout = async (req, res) => {
 	try {
 		const refreshToken = req.cookies.refreshToken;
 		if (refreshToken) {
-			const user = await User.findOne({ refreshToken });
+			const user = await User.findOne({ where: { refreshToken } });
 			if (user) {
-				user.refreshToken = null; // Clear refresh token from User model
+				user.refreshToken = null;
 				await user.save();
 			}
 		}
@@ -163,7 +121,6 @@ export const logout = async (req, res) => {
 	}
 };
 
-// this will refresh the access token
 export const refreshToken = async (req, res) => {
 	try {
 		const refreshToken = req.cookies.refreshToken;
@@ -173,13 +130,15 @@ export const refreshToken = async (req, res) => {
 		}
 
 		const decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
-		const user = await User.findById(decoded.userId);
+		const user = await User.findByPk(decoded.userId);
 
-		if (user.refreshToken !== refreshToken) {
+		if (!user || user.refreshToken !== refreshToken) {
 			return res.status(401).json({ message: "Invalid refresh token" });
 		}
 
-		const accessToken = jwt.sign({ userId: decoded.userId }, process.env.ACCESS_TOKEN_SECRET, { expiresIn: "15m" });
+		const accessToken = jwt.sign({ userId: decoded.userId }, process.env.ACCESS_TOKEN_SECRET, {
+			expiresIn: "15m",
+		});
 
 		res.cookie("accessToken", accessToken, {
 			httpOnly: true,

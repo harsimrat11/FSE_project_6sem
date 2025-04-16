@@ -1,49 +1,45 @@
-
-
-import cloudinary from "../lib/cloudinary.js";
+// import cloudinary from "../lib/cloudinary.js";
 import Product from "../models/product.model.js";
+import { Op, Sequelize } from "sequelize";
 
+// ✅ GET ALL PRODUCTS
 export const getAllProducts = async (req, res) => {
   try {
-    const products = await Product.find({});
+    const products = await Product.findAll();
     res.json({ products });
   } catch (error) {
     console.log("Error in getAllProducts controller", error.message);
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
-//BELOW: for final evaluation, not working rn
+
+
 export const getFeaturedProducts = async (req, res) => {
   try {
-    //fetch featured products from mongodb
-    const featuredProducts = await Product.find({ isFeatured: true }).lean();
-
-    if (!featuredProducts) {
-      return res.status(404).json({ message: "No featured products found" });
-    }
-
-    res.json(featuredProducts);
+    const products = await Product.findAll(); // no filtering
+    res.status(200).json(products);
   } catch (error) {
     console.log("Error in getFeaturedProducts controller", error.message);
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
+// ✅ CREATE PRODUCT
 export const createProduct = async (req, res) => {
   try {
     const { name, description, price, image, category } = req.body;
 
-    let cloudinaryResponse = null;
-
+    let imageUrl = "";
     if (image) {
-      cloudinaryResponse = await cloudinary.uploader.upload(image, { folder: "products" });
+      const cloudinaryResponse = await cloudinary.uploader.upload(image, { folder: "products" });
+      imageUrl = cloudinaryResponse?.secure_url || "";
     }
 
     const product = await Product.create({
       name,
       description,
       price,
-      image: cloudinaryResponse?.secure_url ? cloudinaryResponse.secure_url : "",
+      image: imageUrl,
       category,
     });
 
@@ -54,9 +50,10 @@ export const createProduct = async (req, res) => {
   }
 };
 
+// ✅ DELETE PRODUCT
 export const deleteProduct = async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id);
+    const product = await Product.findByPk(req.params.id);
 
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
@@ -66,13 +63,13 @@ export const deleteProduct = async (req, res) => {
       const publicId = product.image.split("/").pop().split(".")[0];
       try {
         await cloudinary.uploader.destroy(`products/${publicId}`);
-        console.log("deleted image from cloudinary");
+        console.log("Deleted image from Cloudinary");
       } catch (error) {
-        console.log("error deleting image from cloudinary", error);
+        console.log("Error deleting image from Cloudinary", error);
       }
     }
 
-    await Product.findByIdAndDelete(req.params.id);
+    await product.destroy();
 
     res.json({ message: "Product deleted successfully" });
   } catch (error) {
@@ -81,22 +78,14 @@ export const deleteProduct = async (req, res) => {
   }
 };
 
+// ✅ RECOMMENDED PRODUCTS
 export const getRecommendedProducts = async (req, res) => {
   try {
-    const products = await Product.aggregate([
-      {
-        $sample: { size: 4 },
-      },
-      {
-        $project: {
-          _id: 1,
-          name: 1,
-          description: 1,
-          image: 1,
-          price: 1,
-        },
-      },
-    ]);
+    const products = await Product.findAll({
+      order: [Sequelize.literal("RAND()")],
+      limit: 4,
+      attributes: ["id", "name", "description", "image", "price"],
+    });
 
     res.json(products);
   } catch (error) {
@@ -105,10 +94,20 @@ export const getRecommendedProducts = async (req, res) => {
   }
 };
 
+// ✅ PRODUCTS BY CATEGORY (Case-insensitive for MySQL)
 export const getProductsByCategory = async (req, res) => {
-  const { category } = req.params;
   try {
-    const products = await Product.find({ category });
+    const { category } = req.params;
+    console.log("Requested category:", category);
+
+    const products = await Product.findAll({
+      where: Sequelize.where(
+        Sequelize.fn("LOWER", Sequelize.col("category")),
+        Op.like,
+        category.toLowerCase()
+      ),
+    });
+
     res.json({ products });
   } catch (error) {
     console.log("Error in getProductsByCategory controller", error.message);
@@ -116,52 +115,49 @@ export const getProductsByCategory = async (req, res) => {
   }
 };
 
+// ✅ TOGGLE FEATURED (kept for admin control, but not used in filtering)
 export const toggleFeaturedProduct = async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id);
-    if (product) {
-      product.isFeatured = !product.isFeatured;
-      const updatedProduct = await product.save();
-      res.json(updatedProduct);
-    } else {
-      res.status(404).json({ message: "Product not found" });
+    const product = await Product.findByPk(req.params.id);
+
+    if (!product) {
+      return res.status(404).json({ message: "Product not found" });
     }
+
+    product.isFeatured = !product.isFeatured;
+    const updatedProduct = await product.save();
+
+    res.json(updatedProduct);
   } catch (error) {
     console.log("Error in toggleFeaturedProduct controller", error.message);
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
-// New updateProduct function
+// ✅ UPDATE PRODUCT
 export const updateProduct = async (req, res) => {
   try {
     const { productId } = req.params;
     const { name, description, price, image, category } = req.body;
 
-    // Find product by ID
-    let product = await Product.findById(productId);
+    const product = await Product.findByPk(productId);
 
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    // Handle image update (optional)
-    let cloudinaryResponse = null;
     if (image) {
-      cloudinaryResponse = await cloudinary.uploader.upload(image, { folder: "products" });
-      product.image = cloudinaryResponse?.secure_url ? cloudinaryResponse.secure_url : product.image;
+      const cloudinaryResponse = await cloudinary.uploader.upload(image, { folder: "products" });
+      product.image = cloudinaryResponse?.secure_url || product.image;
     }
 
-    // Update product details
     product.name = name || product.name;
     product.description = description || product.description;
     product.price = price || product.price;
     product.category = category || product.category;
 
-    // Save the updated product to the database
     const updatedProduct = await product.save();
 
-    // Return the updated product
     res.json(updatedProduct);
   } catch (error) {
     console.log("Error in updateProduct controller", error.message);
